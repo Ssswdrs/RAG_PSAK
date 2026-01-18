@@ -160,7 +160,7 @@ def answer_question(question: str, contexts: list, language: str) -> str:
     return response["message"]["content"]
 
 def ingest(context: str) -> str:
-    table = record_data(context)
+    #table = record_data(context)
     table = "data_all"
     if table not in table_names:
         ensure_table(table)
@@ -173,7 +173,7 @@ def ingest(context: str) -> str:
 def ask(question: str, language: str) -> str:
     table_names = get_all_tables()
     table_list_str = ", ".join(table_names)
-    table = choose_table_for_question(question)
+    # table = choose_table_for_question(question)
     table = "data_all"
     if table not in table_names:
         return "No relevant data found"
