@@ -1,0 +1,8 @@
+run database docker
+docker compose up -d
+
+run service
+ngrok http 9000
+
+uvicorn app:app --host 0.0.0.0 --port 9000
+
