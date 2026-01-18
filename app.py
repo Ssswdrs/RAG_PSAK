@@ -59,8 +59,17 @@ def handle_audio_message(user_id: str, message_id: str) -> str:
 
     if not text:
         return "❌ ฟังไม่ออก ลองพูดใหม่อีกครั้ง"
+    
+    answer = rag.ask(text, user_lang.get(user_id, "Thai"))
+    question = "คำถาม" if user_lang.get(user_id) == "Thai" else "Question"
+    answer_prefix = "คำตอบ" if user_lang.get(user_id) == "Thai" else "Answer"
 
-    return rag.ask(text, user_lang.get(user_id, "Thai"))
+    return (
+        f"{question}:\n"
+        f"{text}\n\n"
+        f"{answer_prefix}:\n"
+        f"{answer}"
+    )
 
 # ======================
 # Webhook
