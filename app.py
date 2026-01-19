@@ -124,11 +124,17 @@ def handle_message(user_id: str, text: str) -> str:
             user_lang[user_id] = "Thai"
         return f"Language set to {user_lang[user_id]}"
 
-    if text.startswith("/ingest"):
-        content = text.replace("/ingest", "", 1).strip()
+    if text.startswith("/memo"):
+        content = text.replace("/memo", "", 1).strip()
         if not content:
-            return "Please provide text to ingest"
+            return "Please provide text to memo"
         return rag.ingest(content)
+    
+    if text.startswith("/yourmemo"):
+        memo = rag.get_memo()
+        if not memo:
+            return "Noting"
+        return rag.get_memo()
 
     if text.startswith("/ask"):
         question = text.replace("/ask", "", 1).strip()
@@ -144,7 +150,7 @@ def handle_message(user_id: str, text: str) -> str:
 
     return (
         "Commands:\n"
-        "/ingest <text>\n"
+        "/memo <text>\n"
         "/ask <question>\n"
         "/lang en|th"
     )

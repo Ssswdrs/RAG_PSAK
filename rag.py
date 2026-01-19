@@ -2,6 +2,8 @@
 import ollama
 import psycopg2
 from psycopg2 import sql
+from sentence_transformers import SentenceTransformer
+import numpy as np
 
 # =========================================================
 # CONFIG
@@ -14,10 +16,12 @@ DB_CONFIG = {
     "port": 5432,
 }
 
-EMBED_MODEL = "nomic-embed-text"
+model = SentenceTransformer("all-MiniLM-L6-v2")
 CHAT_MODEL = "deepseek-r1"
-EMBED_DIM = 768
+EMBED_DIM = 384
 
+conversation_summary = None
+conversation_embedding = None
 
 # =========================================================
 # DB CONNECTION
@@ -87,11 +91,8 @@ def search_similar(tablename: str, embedding: list, limit: int = 3):
 # EMBEDDING
 # =========================================================
 def embed_text(text: str) -> list:
-    res = ollama.embeddings(
-        model=EMBED_MODEL,
-        prompt=text
-    )
-    return res["embedding"]
+    embeddings = model.encode(text).tolist()
+    return embeddings
 
 
 # =========================================================
@@ -159,6 +160,63 @@ def answer_question(question: str, contexts: list, language: str) -> str:
     )
     return response["message"]["content"]
 
+def normalize_query(text: str) -> str:
+    prompt = f"""
+                You are a query normalizer.
+
+                Task:
+                - Rewrite the question to be short, clear, and explicit
+                - KEEP the original language of the user (Thai stays Thai, English stays English)
+                - Remove filler words and hesitation
+                - Keep key nouns and actions
+
+                Question:
+                {text}
+
+                Normalized question:
+            """.strip()
+
+    result = ollama.generate(
+        model=CHAT_MODEL,
+        prompt=prompt
+    )
+
+    return result["response"].strip()
+
+def summarize_qa(question: str, answer: str, language: str) -> str:
+    prompt = f"""
+                You are a conversation summarizer.
+
+                Rules:
+                - Summarize the CORE intent and facts
+                - Be concise
+                - No filler words
+                - Language: {language}
+
+                Conversation:
+                Question: {question}
+                Answer: {answer}
+
+                Summary:
+                """.strip()
+
+    result = ollama.generate(
+        model=CHAT_MODEL,
+        prompt=prompt
+    )
+
+    return result["response"].strip()
+
+def is_related_to_summary(question: str, summary_embedding: list, threshold: float = 0.75) -> bool:
+    q_embedding = embed_text(question)
+
+    q = np.array(q_embedding)
+    s = np.array(summary_embedding)
+
+    similarity = np.dot(q, s) / (np.linalg.norm(q) * np.linalg.norm(s))
+    return similarity >= threshold
+
+
 def ingest(context: str) -> str:
     #table = record_data(context)
     table = "data_all"
@@ -171,17 +229,43 @@ def ingest(context: str) -> str:
     return f"Saved to memory successful"
 
 def ask(question: str, language: str) -> str:
-    table_names = get_all_tables()
-    table_list_str = ", ".join(table_names)
-    # table = choose_table_for_question(question)
+    global conversation_summary, conversation_embedding
+
     table = "data_all"
-    if table not in table_names:
+    if table not in get_all_tables():
         return "No relevant data found"
 
-    q_embedding = embed_text(question)
+    normalized_question = normalize_query(question)
+
+    # === Decide search text ===
+    if conversation_summary and conversation_embedding:
+        if is_related_to_summary(normalized_question, conversation_embedding):
+            # คุยเรื่องเดิม → แทรก summary
+            search_text = conversation_summary + "\n" + normalized_question
+        else:
+            # เปลี่ยนเรื่อง → ทับ summary เดิม
+            conversation_summary = None
+            conversation_embedding = None
+            search_text = normalized_question
+    else:
+        search_text = normalized_question
+
+    # === Retrieval ===
+    q_embedding = embed_text(search_text)
     contexts = search_similar(table, q_embedding)
 
     if not contexts:
         return "No matching context"
 
-    return answer_question(question, contexts, language)
+    answer = answer_question(question, contexts, language)
+
+    # === Update summary (ทุกครั้ง) ===
+    new_summary = summarize_qa(question, answer, language)
+    conversation_summary = new_summary
+    conversation_embedding = embed_text(new_summary)
+
+    return answer
+
+
+def get_memo() -> str:
+    return conversation_summary
